@@ -6,7 +6,7 @@ from langchain_google_genai import GoogleGenerativeAI, ChatGoogleGenerativeAI, G
 from config.config import GEMINI_FLASH_LITE_001_MODEL, GEMINI_PRO_002_MODEL, GEMINI_EMBEDDINGS_MODEL
 
 
-api_key = "AIzaSyDGnj-q426jslevxhFKfYW2es2udxyWOEU"
+api_key = ""
 
 safety_settings = {
     HarmCategory.HARM_CATEGORY_UNSPECIFIED: HarmBlockThreshold.BLOCK_ONLY_HIGH,
