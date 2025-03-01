@@ -11,7 +11,7 @@ import json
 import re
 
 # Set your OpenAI API key
-os.environ["GROQ_API_KEY"] = "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"
+os.environ["GROQ_API_KEY"] = "Enter your api key here"
 
 # Step 1: Load and preprocess the data
 def load_and_preprocess_data(file_path):
