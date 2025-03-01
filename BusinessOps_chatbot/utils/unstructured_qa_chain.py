@@ -9,40 +9,46 @@ from langchain.embeddings import HuggingFaceEmbeddings
 from langchain_groq import ChatGroq
 import json
 import re
+import PyPDF2  # For PDF text extraction
 
-# Set your OpenAI API key
-os.environ["GROQ_API_KEY"] = "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"
+# Set your Grok API key
+os.environ["GROQ_API_KEY"] = "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"
 
-# Step 1: Load and preprocess the data
+# Function to extract text from a PDF file
+def extract_text_from_pdf(file_path):
+    try:
+        with open(file_path, 'rb') as file:
+            reader = PyPDF2.PdfReader(file)
+            text = ""
+            for page in reader.pages:
+                text += page.extract_text() or ""
+            return text.strip()
+    except Exception as e:
+        raise Exception(f"Error reading PDF file: {str(e)}")
+
+# Step 1: Load and preprocess the data (unchanged)
 def load_and_preprocess_data(file_path):
     df = pd.read_csv(file_path)
     
-    # Create a condensed profile for each candidate
     profiles = []
     
     for _, row in df.iterrows():
-        # Extract skills and format them
         skills = row['key_skill'].split(',') if pd.notna(row['key_skill']) else []
         skills = [skill.strip() for skill in skills]
         
-        # Try to parse projects (assuming they're in a string that looks like a list)
         projects = []
         if pd.notna(row['projects']):
             try:
-                # Handle the specific format in your data
                 project_str = row['projects']
-                # Extract project titles and descriptions using regex
-                matches = re.findall(r'projects_title : (.*?) \| projects:(.*?)"', project_str)
+                matches = re.findall(r'projects_title : (.?) \| projects:(.?)"', project_str)
                 for match in matches:
                     projects.append({
                         "title": match[0].strip(),
                         "description": match[1].strip()
                     })
             except:
-                # If parsing fails, store as is
                 projects = [{"title": "Project", "description": str(row['projects'])}]
         
-        # Build a comprehensive profile text
         profile_text = f"""
         CANDIDATE ID: {row['id']}
         NAME: {row['profile_name']}
@@ -58,7 +64,6 @@ def load_and_preprocess_data(file_path):
         LOCATION: {row['location'] if pd.notna(row['location']) else 'Not specified'}
         """
         
-        # Add projects if available
         if projects:
             profile_text += "\nPROJECTS:\n"
             for project in projects:
@@ -78,16 +83,13 @@ def load_and_preprocess_data(file_path):
     
     return profiles
 
-# Step 2: Create vector embeddings and store in ChromaDB
+# Step 2: Create vector embeddings and store in ChromaDB (unchanged)
 def create_vector_store(profiles, persist_directory="candidate_db"):
-    # Create documents for vector store
     documents = [profile["content"] for profile in profiles]
     metadatas = [{"id": profile["id"], "name": profile["name"]} for profile in profiles]
     
-    # Initialize the embedding function
     embedding_function = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     
-    # Create and persist the vector store
     vector_store = Chroma.from_texts(
         documents,
         embedding_function,
@@ -97,29 +99,28 @@ def create_vector_store(profiles, persist_directory="candidate_db"):
     
     return vector_store
 
-# Step 3: Define the retriever prompt for job description processing
+# Step 3: Define the retriever (unchanged)
 def get_retriever(vector_store):
     return vector_store.as_retriever(
         search_type="similarity",
         search_kwargs={"k": 3}
     )
 
-# Step 4: Create the RAG prompt
+# Step 4: Create the RAG prompt (unchanged)
 def create_rag_chain():
-    # Template for generating a response based on retrieved candidates
     template = """
     You are an expert HR consultant who specializes in matching candidates to job descriptions.
-    I need you to analyze the job description and find the best candidate match from the retrieved profiles.
+    I need you to analyze the job description or resume and find the best candidate match from the retrieved profiles.
     
-    JOB DESCRIPTION:
+    INPUT:
     {job_description}
     
     RETRIEVED CANDIDATE PROFILES:
     {context}
     
-    Based on the job description and candidate profiles:
+    Based on the input (job description or resume) and candidate profiles:
     1. Analyze each candidate's skills, experience, and background
-    2. Evaluate how well they match the job requirements
+    2. Evaluate how well they match the requirements
     3. Consider factors like availability, charge rate, and location
     4. Select the BEST candidate that meets the requirements
     
@@ -132,7 +133,7 @@ def create_rag_chain():
     [Name of the best candidate, with their key qualifications and why they're the best match]
     
     DETAILED ANALYSIS:
-    [Provide a detailed analysis of how the candidate matches the job requirements]
+    [Provide a detailed analysis of how the candidate matches the requirements]
     
     ALTERNATIVE CANDIDATES:
     [Brief overview of other candidates and why they weren't selected as the top choice]
@@ -142,11 +143,8 @@ def create_rag_chain():
     """
     
     prompt = ChatPromptTemplate.from_template(template)
-    
-    # Initialize the language model
     model = ChatGroq(model="llama3-70b-8192", temperature=0)
     
-    # Create the RAG chain
     chain = (
         {"context": lambda x: x["retriever_results"], "job_description": lambda x: x["job_description"]}
         | prompt
@@ -156,22 +154,24 @@ def create_rag_chain():
     
     return chain
 
-# Step 5: Create the main function to process job descriptions
+# Step 5: Create the main function with document upload option
 def create_candidate_matcher(file_path=r"C:\Users\Priyansh Tyagi\Desktop\Businessopschatbot\data\my_company_data_with_headers.csv"):
-    # Load and preprocess data
     profiles = load_and_preprocess_data(file_path)
-    
-    # Create vector store
     vector_store = create_vector_store(profiles)
-    
-    # Create the retriever
     retriever = get_retriever(vector_store)
-    
-    # Create the RAG chain
     chain = create_rag_chain()
     
-    # Define the final chain with retrieval
-    def match_candidate(job_description):
+    def match_candidate(input_data=None, document_path=None):
+        # Determine the input source
+        if document_path:
+            if not os.path.exists(document_path):
+                raise FileNotFoundError(f"Document not found at {document_path}")
+            job_description = extract_text_from_pdf(document_path)
+        elif input_data:
+            job_description = input_data
+        else:
+            raise ValueError("Please provide either a job description or a document path.")
+        
         # Retrieve relevant candidates
         retriever_results = retriever.invoke(job_description)
         retriever_docs = [doc.page_content for doc in retriever_results]
@@ -194,13 +194,21 @@ if __name__ == "__main__":
     # Create the candidate matcher
     candidate_matcher = create_candidate_matcher()
     
-    # Example job description
+    # Option 1: Use a typed job description
     sample_job_description = """
     We are looking for an experienced Data Engineer with strong Python skills and experience with AWS cloud services. 
     The ideal candidate should have 10+ years of experience in building data pipelines and working with big data technologies.
     Experience with Machine Learning frameworks is a plus. The candidate should be available within 30 days.
     """
-    
-    # Get candidate recommendations
-    recommendation = candidate_matcher(sample_job_description)
+    print("Matching based on typed job description:")
+    recommendation = candidate_matcher(input_data=sample_job_description)
     print(recommendation)
+    
+    # Option 2: Use a document upload (e.g., a PDF job description or resume)
+    sample_pdf_path = r"C:\Users\Priyansh Tyagi\Desktop\Businessopschatbot\sample-job-description.pdf"  # Replace with actual PDF path
+    try:
+        print("\nMatching based on uploaded document:")
+        recommendation = candidate_matcher(document_path=sample_pdf_path)
+        print(recommendation)
+    except Exception as e:
+        print(f"Error: {str(e)}")
