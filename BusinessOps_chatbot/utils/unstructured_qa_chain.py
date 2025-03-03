@@ -40,7 +40,7 @@ def load_and_preprocess_data(file_path):
         if pd.notna(row['projects']):
             try:
                 project_str = row['projects']
-                matches = re.findall(r'projects_title : (.?) \| projects:(.?)"', project_str)
+                matches = re.findall(r'projects_title : (.*?) \| projects:(.*?)"', project_str)
                 for match in matches:
                     projects.append({
                         "title": match[0].strip(),
@@ -155,13 +155,29 @@ def create_rag_chain():
     return chain
 
 # Step 5: Create the main function with document upload option
-def create_candidate_matcher(file_path=r"C:\Users\Priyansh Tyagi\Desktop\Businessopschatbot\data\my_company_data_with_headers.csv"):
+def create_candidate_matcher(file_path="C:/Users/aanch/Desktop/BusinessOps_chatbot/utils/my_company_data_with_headers.csv"):
+    """
+    Create a function that matches candidates to job descriptions or queries.
+    Returns a function that can be called with either input_data or document_path.
+    """
+    # Check if the data file exists
+    if not os.path.exists(file_path):
+        # Use a default path relative to the script location
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(script_dir, "..", file_path)
+        
+        # Check again with the new path
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Data file not found at {file_path}")
+    
+    # Load profiles and create vector store
     profiles = load_and_preprocess_data(file_path)
     vector_store = create_vector_store(profiles)
     retriever = get_retriever(vector_store)
     chain = create_rag_chain()
     
     def match_candidate(input_data=None, document_path=None):
+        """Match a candidate based on input text or a document"""
         # Determine the input source
         if document_path:
             if not os.path.exists(document_path):
@@ -188,27 +204,3 @@ def create_candidate_matcher(file_path=r"C:\Users\Priyansh Tyagi\Desktop\Busines
         return response
     
     return match_candidate
-
-# Example usage
-if __name__ == "__main__":
-    # Create the candidate matcher
-    candidate_matcher = create_candidate_matcher()
-    
-    # Option 1: Use a typed job description
-    sample_job_description = """
-    We are looking for an experienced Data Engineer with strong Python skills and experience with AWS cloud services. 
-    The ideal candidate should have 10+ years of experience in building data pipelines and working with big data technologies.
-    Experience with Machine Learning frameworks is a plus. The candidate should be available within 30 days.
-    """
-    print("Matching based on typed job description:")
-    recommendation = candidate_matcher(input_data=sample_job_description)
-    print(recommendation)
-    
-    # Option 2: Use a document upload (e.g., a PDF job description or resume)
-    sample_pdf_path = r"C:\Users\Priyansh Tyagi\Desktop\Businessopschatbot\sample-job-description.pdf"  # Replace with actual PDF path
-    try:
-        print("\nMatching based on uploaded document:")
-        recommendation = candidate_matcher(document_path=sample_pdf_path)
-        print(recommendation)
-    except Exception as e:
-        print(f"Error: {str(e)}")
