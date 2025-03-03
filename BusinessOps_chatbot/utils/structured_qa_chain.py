@@ -233,34 +233,42 @@ async def get_structured_qa_chain(
 
 
 async def test_rag_chain(user_query):
+    """Execute a structured RAG chain query and return the results"""
+    try:
+        response = await get_structured_qa_chain(
+            token="test_user",
+            connection="",
+            table_names=["company", "users", "add_profile"],
+            query=user_query,
+            real_user_question=user_query,
+            chat_history=[],
+            llm=gemini_pro_llm,
+            chat_id="test_chat"
+        )
+        
+        # When running as a standalone script, print the results
+        if __name__ == "__main__":
+            print("*****************************************************************************************************")
+            print(f"final sql query: {response.get('query', 'No query generated')}")
+            print("*****************************************************************************************************")
+            print(f"final answer: {response.get('output', 'No output generated')}")
+        
+        return response
+    except Exception as e:
+        print(f"Error in structured RAG chain: {str(e)}")
+        return {
+            "query": "Error generating SQL query",
+            "output": f"An error occurred: {str(e)}"
+        }
 
-    response = await get_structured_qa_chain(
-        token="test_user",
-        connection="",
-        table_names=["company", "users", "add_profile"],
-        query=user_query,
-        real_user_question=user_query,
-        chat_history=[],
-        llm=gemini_pro_llm,  
-        # llm = gemini_flash_llm,
-        chat_id="test_chat"
-    )
+# You can keep the example queries and test code at the bottom for standalone testing
+if __name__ == "__main__":
+    # query = "What is the phone number and email of Bob Williams ?"
+    query = "what is the job title of Charlie Davis?"
+    # query = "What is the average charge rate in INR for profiles that have more than 5 years of experience?"
+    # query = "give me the details of copanies whose company_turnover is greater than $10M"
+    # query = "Find all employees with more than 10 years of experience."
+    # query = "Which skills are most common among profiles with high view counts?"
 
-    print("*****************************************************************************************************")
-    print(f"final sql query: {response.get('query', 'No query generated')}")
-    print("*****************************************************************************************************")
-    print(f"final answer: {response.get('output', 'No output generated')}")
-
-
-
-
-# query = "What is the phone number and email of Bob Williams ?"
-query = "what is the job title of Charlie Davis?"
-# query = "What is the average charge rate in INR for profiles that have more than 5 years of experience?"
-# query = "give me the details of copanies whose company_turnover is greater than $10M"
-# query = "Find all employees with more than 10 years of experience."
-# query = "Which skills are most common among profiles with high view counts?"
-
-
-# Run Test
-asyncio.run(test_rag_chain(query))
+    # Run Test
+    asyncio.run(test_rag_chain(query))
