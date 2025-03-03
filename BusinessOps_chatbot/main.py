@@ -12,10 +12,10 @@ sys.path.append(str(PROJECT_ROOT))
 from routers.query_router import QueryRouter
     
 # Import the structured RAG chain
-from utils.test_chain import test_rag_chain
+from utils.structured_qa_chain import test_rag_chain
 
 # Import the unstructured RAG chain
-from utils.doc_upload import create_candidate_matcher
+from utils.unstructured_qa_chain import create_candidate_matcher
 
 class RAGSystem:
     def __init__(self):
