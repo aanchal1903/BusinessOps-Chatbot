@@ -10,6 +10,7 @@ from langchain_groq import ChatGroq
 import json
 import re
 import PyPDF2  # For PDF text extraction
+import mysql.connector  # For MySQL connection
 
 # Set your Grok API key
 os.environ["GROQ_API_KEY"] = "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"
@@ -26,64 +27,104 @@ def extract_text_from_pdf(file_path):
     except Exception as e:
         raise Exception(f"Error reading PDF file: {str(e)}")
 
-# Step 1: Load and preprocess the data (unchanged)
-def load_and_preprocess_data(file_path):
-    df = pd.read_csv(file_path)
-    
-    profiles = []
-    
-    for _, row in df.iterrows():
-        skills = row['key_skill'].split(',') if pd.notna(row['key_skill']) else []
-        skills = [skill.strip() for skill in skills]
-        
-        projects = []
-        if pd.notna(row['projects']):
-            try:
-                project_str = row['projects']
-                matches = re.findall(r'projects_title : (.*?) \| projects:(.*?)"', project_str)
-                for match in matches:
-                    projects.append({
-                        "title": match[0].strip(),
-                        "description": match[1].strip()
-                    })
-            except:
-                projects = [{"title": "Project", "description": str(row['projects'])}]
-        
-        profile_text = f"""
-        CANDIDATE ID: {row['id']}
-        NAME: {row['profile_name']}
-        JOB TITLE: {row['job_title']}
-        EXPERIENCE: {row['experience']}
-        DEPARTMENT: {row['department']}
-        PROFESSIONAL SUMMARY: {row['professional_summary']}
-        SKILLS: {', '.join(skills)}
-        EDUCATION: {row['education']}
-        CERTIFICATION: {row['certificate'] if pd.notna(row['certificate']) else 'None'}
-        CHARGE RATE: {row['charge_rate'] if pd.notna(row['charge_rate']) else 'Not specified'}
-        AVAILABILITY: {row['availability'] if pd.notna(row['availability']) else 'Not specified'}
-        LOCATION: {row['location'] if pd.notna(row['location']) else 'Not specified'}
-        """
-        
-        if projects:
-            profile_text += "\nPROJECTS:\n"
-            for project in projects:
-                profile_text += f"- {project['title']}: {project['description']}\n"
-        
-        profiles.append({
-            "id": row['id'],
-            "name": row['profile_name'],
-            "content": profile_text,
-            "metadata": {
-                "job_title": row['job_title'],
-                "experience": row['experience'],
-                "skills": skills,
-                "charge_rate": row['charge_rate'] if pd.notna(row['charge_rate']) else 'Not specified',
-            }
-        })
-    
-    return profiles
+# Step 1: Load and preprocess data from MySQL
+def load_and_preprocess_data_from_db():
+    # MySQL database configuration
+    db_config = {
+        'host': 'localhost',          # Replace with your MySQL host
+        'user': 'your_username',      # Replace with your MySQL username
+        'password': 'your_password',  # Replace with your MySQL password
+        'database': 'your_database'   # Replace with your database name
+    }
 
-# Step 2: Create vector embeddings and store in ChromaDB (unchanged)
+    try:
+        # Establish connection
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)  # Return results as dictionaries
+
+        # Query to fetch candidate data (adjust table/column names as per your DB schema)
+        query = """
+        SELECT 
+            id, 
+            profile_name, 
+            job_title, 
+            experience, 
+            department, 
+            professional_summary, 
+            key_skill, 
+            education, 
+            certificate, 
+            charge_rate, 
+            availability, 
+            location, 
+            projects 
+        FROM candidates
+        """
+        cursor.execute(query)
+        rows = cursor.fetchall()
+
+        profiles = []
+
+        for row in rows:
+            skills = row['key_skill'].split(',') if row['key_skill'] else []
+            skills = [skill.strip() for skill in skills]
+            
+            projects = []
+            if row['projects']:
+                try:
+                    project_str = row['projects']
+                    matches = re.findall(r'projects_title : (.*?) \| projects:(.*?)"', project_str)
+                    for match in matches:
+                        projects.append({
+                            "title": match[0].strip(),
+                            "description": match[1].strip()
+                        })
+                except:
+                    projects = [{"title": "Project", "description": str(row['projects'])}]
+            
+            profile_text = f"""
+            CANDIDATE ID: {row['id']}
+            NAME: {row['profile_name']}
+            JOB TITLE: {row['job_title']}
+            EXPERIENCE: {row['experience']}
+            DEPARTMENT: {row['department']}
+            PROFESSIONAL SUMMARY: {row['professional_summary']}
+            SKILLS: {', '.join(skills)}
+            EDUCATION: {row['education']}
+            CERTIFICATION: {row['certificate'] if row['certificate'] else 'None'}
+            CHARGE RATE: {row['charge_rate'] if row['charge_rate'] else 'Not specified'}
+            AVAILABILITY: {row['availability'] if row['availability'] else 'Not specified'}
+            LOCATION: {row['location'] if row['location'] else 'Not specified'}
+            """
+            
+            if projects:
+                profile_text += "\nPROJECTS:\n"
+                for project in projects:
+                    profile_text += f"- {project['title']}: {project['description']}\n"
+            
+            profiles.append({
+                "id": row['id'],
+                "name": row['profile_name'],
+                "content": profile_text,
+                "metadata": {
+                    "job_title": row['job_title'],
+                    "experience": row['experience'],
+                    "skills": skills,
+                    "charge_rate": row['charge_rate'] if row['charge_rate'] else 'Not specified',
+                }
+            })
+
+        return profiles
+
+    except mysql.connector.Error as err:
+        raise Exception(f"Database error: {str(err)}")
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'connection' in locals():
+            connection.close()
+
+# Step 2: Create vector embeddings and store in ChromaDB
 def create_vector_store(profiles, persist_directory="candidate_db"):
     documents = [profile["content"] for profile in profiles]
     metadatas = [{"id": profile["id"], "name": profile["name"]} for profile in profiles]
@@ -99,14 +140,14 @@ def create_vector_store(profiles, persist_directory="candidate_db"):
     
     return vector_store
 
-# Step 3: Define the retriever (unchanged)
+# Step 3: Define the retriever
 def get_retriever(vector_store):
     return vector_store.as_retriever(
         search_type="similarity",
         search_kwargs={"k": 3}
     )
 
-# Step 4: Create the RAG prompt (unchanged)
+# Step 4: Create the RAG prompt
 def create_rag_chain():
     template = """
     You are an expert HR consultant who specializes in matching candidates to job descriptions.
@@ -155,30 +196,13 @@ def create_rag_chain():
     return chain
 
 # Step 5: Create the main function with document upload option
-def create_candidate_matcher(file_path="C:/Users/aanch/Desktop/BusinessOps_chatbot/utils/my_company_data_with_headers.csv"):
-    """
-    Create a function that matches candidates to job descriptions or queries.
-    Returns a function that can be called with either input_data or document_path.
-    """
-    # Check if the data file exists
-    if not os.path.exists(file_path):
-        # Use a default path relative to the script location
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        file_path = os.path.join(script_dir, "..", file_path)
-        
-        # Check again with the new path
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"Data file not found at {file_path}")
-    
-    # Load profiles and create vector store
-    profiles = load_and_preprocess_data(file_path)
+def create_candidate_matcher():
+    profiles = load_and_preprocess_data_from_db()  # Fetch from DB instead of CSV
     vector_store = create_vector_store(profiles)
     retriever = get_retriever(vector_store)
     chain = create_rag_chain()
     
     def match_candidate(input_data=None, document_path=None):
-        """Match a candidate based on input text or a document"""
-        # Determine the input source
         if document_path:
             if not os.path.exists(document_path):
                 raise FileNotFoundError(f"Document not found at {document_path}")
@@ -188,14 +212,11 @@ def create_candidate_matcher(file_path="C:/Users/aanch/Desktop/BusinessOps_chatb
         else:
             raise ValueError("Please provide either a job description or a document path.")
         
-        # Retrieve relevant candidates
         retriever_results = retriever.invoke(job_description)
         retriever_docs = [doc.page_content for doc in retriever_results]
         
-        # Format the documents for the prompt
         formatted_docs = "\n\n".join(retriever_docs)
         
-        # Invoke the chain
         response = chain.invoke({
             "retriever_results": formatted_docs,
             "job_description": job_description
@@ -204,3 +225,27 @@ def create_candidate_matcher(file_path="C:/Users/aanch/Desktop/BusinessOps_chatb
         return response
     
     return match_candidate
+
+# # Example usage
+# if __name__ == "__main__":
+#     # Create the candidate matcher
+#     candidate_matcher = create_candidate_matcher()
+    
+#     # Option 1: Use a typed job description
+#     sample_job_description = """
+#     We are looking for an experienced Data Engineer with strong Python skills and experience with AWS cloud services. 
+#     The ideal candidate should have 10+ years of experience in building data pipelines and working with big data technologies.
+#     Experience with Machine Learning frameworks is a plus. The candidate should be available within 30 days.
+#     """
+#     print("Matching based on typed job description:")
+#     recommendation = candidate_matcher(input_data=sample_job_description)
+#     print(recommendation)
+    
+#     # Option 2: Use a document upload (e.g., a PDF job description or resume)
+#     sample_pdf_path = r"C:\Users\Priyansh Tyagi\Desktop\Businessopschatbot\sample-job-description.pdf"
+#     try:
+#         print("\nMatching based on uploaded document:")
+#         recommendation = candidate_matcher(document_path=sample_pdf_path)
+#         print(recommendation)
+#     except Exception as e:
+#         print(f"Error: {str(e)}")
