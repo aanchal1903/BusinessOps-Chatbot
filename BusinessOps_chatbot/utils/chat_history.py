@@ -33,7 +33,6 @@ router = APIRouter(prefix="/chat_history", tags=["Chat History"])
 # from dependencies.auth_ import verify_token
 
 # ------------------ Pydantic Models ------------------ #
-# [Your existing Pydantic models remain unchanged]
 
 class ChatItem(BaseModel):
     chat_id: str
@@ -56,7 +55,6 @@ class ChatDetail(BaseModel):
     bookmarked: bool = False
 
 # ------------------ Utility Function ------------------ #
-# [Your existing utility function remains unchanged]
 def _get_paginated_chats(collection, user_id: str, tenant_id: Optional[str], page: int, limit: int):
     query = {"user_id": user_id}
     if tenant_id:
